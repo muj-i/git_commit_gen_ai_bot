@@ -103,8 +103,9 @@ git commit                    # editor opens pre-filled — review, tweak, save
 In a hurry (or you trust the message)? Skip the editor entirely:
 
 ```sh
-git add <files you want>      # you decide what goes in — gitbot never stages for you here
+git add <files you want>      # you decide what goes in
 gitbot commit                 # generate + commit the staged changes; uses the slot 1 message if ready
+gitbot commit -a              # git add -A + generate + commit, one shot
 ```
 
 ### Pipeline mode — working with Claude Code
@@ -134,7 +135,7 @@ What happens next:
 | `gitbot plan clear` | Empty the plan and queue (slot untouched). |
 | `gitbot task done <id> [--files f1 f2 ...]` | Mark a task finished. Slot free → stage + generate message; slot busy → queue. Without `--files`, all dirty files are snapshotted. Unknown ids create ad-hoc tasks. |
 | `gitbot msg [--model m]` | Generate a message for whatever is currently staged (manual mode). |
-| `gitbot commit [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). Commits **only what is already staged** — it never stages anything itself. Uses the ready slot 1 message when there is one; `--regenerate` forces a fresh one. Queue promotion still happens. |
+| `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). By default commits **only what is already staged**; `-a` runs `git add -A` first. Uses the ready slot 1 message when there is one; `--regenerate` forces a fresh one. Queue promotion still happens. |
 | `gitbot status` | Plan, slot 1 (with full message), queue, staged files. |
 | `gitbot service install/uninstall/start/stop/status` | Manage the launchd daemon. `install` = one-time setup for start-on-boot. |
 | `gitbot daemon` | Run the watcher in the foreground (what launchd runs). |
