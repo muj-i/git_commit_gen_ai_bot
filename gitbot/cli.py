@@ -164,10 +164,8 @@ def cmd_msg(args) -> int:
 def cmd_commit(args) -> int:
     repo = _repo(args)
     cfg = config.load()
-    if args.all:
-        git_ops.stage(repo, None)
     if not git_ops.has_staged(repo):
-        print("error: nothing staged — `git add` first or use --all", file=sys.stderr)
+        print("error: nothing staged — `git add` what you want committed first", file=sys.stderr)
         return 1
 
     st = state_mod.load(repo)
@@ -288,8 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="force a model (default: auto haiku/sonnet by change size)")
     p.set_defaults(func=cmd_msg)
 
-    p = sub.add_parser("commit", help="generate the message AND commit in one step (no editor)")
-    p.add_argument("-a", "--all", action="store_true", help="stage all changes (git add -A) first")
+    p = sub.add_parser("commit", help="generate the message AND commit the staged changes (no editor)")
     p.add_argument("--model", help="force a model (implies regenerating the message)")
     p.add_argument("--regenerate", action="store_true", help="ignore the slot message and generate fresh")
     p.set_defaults(func=cmd_commit)
