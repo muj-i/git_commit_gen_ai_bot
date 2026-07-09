@@ -126,6 +126,46 @@ def task_done(repo: Path, cfg: dict, task_id: int, files: list[str] | None = Non
         return outcome
 
 
+def advance(repo: Path, cfg: dict) -> str | None:
+    """Task-scoped stepping for `gitbot commit`: when the index is free, stage
+    ONLY the next task's files and prepare its message.
+
+    Candidates are taken queue-first, then plan order. Tasks without recorded
+    files, or whose files have no dirty changes, are skipped — this never
+    stages unrelated work. Returns an outcome string, or None if nothing to do.
+    """
+    with _lock(repo):
+        st = state_mod.load(repo)
+        if st.get("slot") or git_ops.has_staged(repo):
+            return None
+        dirty = set(git_ops.dirty_files(repo))
+        if not dirty:
+            return None
+
+        seen: set[int] = set()
+        candidates: list[dict] = []
+        for task_id in st["queue"]:
+            task = state_mod.get_task(st, task_id)
+            if task and task["id"] not in seen:
+                candidates.append(task)
+                seen.add(task["id"])
+        for task in st["plan"]:
+            if task["status"] in ("pending", "in_progress", "done") and task["id"] not in seen:
+                candidates.append(task)
+                seen.add(task["id"])
+
+        for task in candidates:
+            files = task.get("files") or []
+            if not files or not (set(files) & dirty):
+                continue
+            if _stage_and_fill(repo, cfg, st, task, announce=False):
+                if task["id"] in st["queue"]:
+                    st["queue"].remove(task["id"])
+                state_mod.save(repo, st)
+                return f"task {task['id']} ({task['title']}) — only its files staged, message ready"
+        return None
+
+
 def on_commit(repo: Path, cfg: dict) -> str:
     """Called after a commit: retire slot 1, promote the next queued task."""
     with _lock(repo):

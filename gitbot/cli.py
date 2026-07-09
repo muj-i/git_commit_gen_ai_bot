@@ -164,10 +164,19 @@ def cmd_msg(args) -> int:
 def cmd_commit(args) -> int:
     repo = _repo(args)
     cfg = config.load()
-    if args.all:
-        git_ops.stage(repo, None)
+
     if not git_ops.has_staged(repo):
-        print("error: nothing staged — `git add` what you want committed first, or use -a", file=sys.stderr)
+        # Task-scoped stepping: stage only the next task's files, never everything.
+        advanced = pipeline.advance(repo, cfg)
+        if advanced:
+            print(f"auto-staged: {advanced}")
+        elif args.all:
+            git_ops.stage(repo, None)  # -a falls back to add-all only without task info
+    if not git_ops.has_staged(repo):
+        print(
+            "error: nothing staged and no task files to step through — `git add` first or use -a",
+            file=sys.stderr,
+        )
         return 1
 
     st = state_mod.load(repo)
@@ -190,6 +199,12 @@ def cmd_commit(args) -> int:
     # Idempotent with the post-commit hook: whoever runs first promotes the queue.
     outcome = pipeline.on_commit(repo, cfg)
     print(f"pipeline: {outcome}")
+
+    # Step forward: stage only the NEXT task's files so the next `gitbot commit`
+    # (or plain `git commit`) continues task by task.
+    advanced = pipeline.advance(repo, cfg)
+    if advanced:
+        print(f"next: {advanced}")
     return 0
 
 

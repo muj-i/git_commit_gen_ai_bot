@@ -106,8 +106,18 @@ In a hurry (or you trust the message)? Skip the editor entirely:
 ```sh
 git add <files you want>      # you decide what goes in
 gitbot commit                 # generate + commit the staged changes; uses the slot 1 message if ready
-gitbot commit -a              # git add -A + generate + commit, one shot
+gitbot commit -a              # nothing staged? step through the plan task by task (see below)
 ```
+
+**Task-scoped stepping.** When nothing is staged, `gitbot commit` looks at the plan and stages **only the next task's files** (queue first, then plan order — never `git add -A` while task files match). After every commit it pre-stages the *following* task's files with a fresh message, so you can walk a whole plan one clean commit at a time:
+
+```sh
+gitbot commit -a   # stages ONLY task 1's files → commits → pre-stages task 2
+gitbot commit      # commits task 2 → pre-stages task 3
+gitbot commit      # ...and so on, one task-scoped commit per trigger
+```
+
+`-a` falls back to plain `git add -A` only when no plan task's files match the dirty changes.
 
 ### Pipeline mode — working with Claude Code
 
@@ -138,7 +148,7 @@ What happens next:
 | `gitbot plan clear` | Empty the plan and queue (slot untouched). |
 | `gitbot task done <id> [--files f1 f2 ...]` | Mark a task finished. Slot free → stage + generate message; slot busy → queue. Without `--files`, all dirty files are snapshotted. Unknown ids create ad-hoc tasks. |
 | `gitbot msg [--model m]` | Generate a message for whatever is currently staged (manual mode). |
-| `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). By default commits **only what is already staged**; `-a` runs `git add -A` first. Uses the ready slot 1 message when there is one; `--regenerate` forces a fresh one. Queue promotion still happens. |
+| `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). Commits what's staged; with nothing staged it steps to the next task and stages **only that task's files**. After each commit it pre-stages the following task, so repeated triggers walk the plan commit by commit. `-a` = plain `git add -A`, used only when no task files match. |
 | `gitbot auto [on\|off\|status]` | Per-repo auto-commit toggle: with `on`, every finished task is committed by gitbot immediately — no review stop. |
 | `gitbot status` | Auto-commit setting, plan, slot 1 (with full message), queue, staged files. |
 | `gitbot service install/uninstall/start/stop/status` | Manage the launchd daemon. `install` = one-time setup for start-on-boot. |
