@@ -161,6 +161,38 @@ def cmd_msg(args) -> int:
     return 0
 
 
+def cmd_commit(args) -> int:
+    repo = _repo(args)
+    cfg = config.load()
+    if args.all:
+        git_ops.stage(repo, None)
+    if not git_ops.has_staged(repo):
+        print("error: nothing staged — `git add` first or use --all", file=sys.stderr)
+        return 1
+
+    st = state_mod.load(repo)
+    slot = st.get("slot")
+    if slot and not args.regenerate and not args.model:
+        msg, model = slot["message"], slot.get("model", "?")
+        source = f"slot 1, task {slot['task_id']}"
+    else:
+        if args.model:
+            cfg = {**cfg, "model_small": args.model, "model_large": args.model}
+        msg, model, error = message.generate_or_fallback(repo, cfg)
+        if error:
+            print(f"warning: generation failed, using fallback: {error}", file=sys.stderr)
+        source = "generated now"
+
+    git_ops.run(repo, "commit", "-m", msg)
+    print(f"committed ({source}, model {model}):")
+    for line in msg.splitlines():
+        print(f"  | {line}")
+    # Idempotent with the post-commit hook: whoever runs first promotes the queue.
+    outcome = pipeline.on_commit(repo, cfg)
+    print(f"pipeline: {outcome}")
+    return 0
+
+
 def cmd_status(args) -> int:
     repo = _repo(args)
     st = state_mod.load(repo)
@@ -255,6 +287,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("msg", help="generate a message for whatever is currently staged")
     p.add_argument("--model", help="force a model (default: auto haiku/sonnet by change size)")
     p.set_defaults(func=cmd_msg)
+
+    p = sub.add_parser("commit", help="generate the message AND commit in one step (no editor)")
+    p.add_argument("-a", "--all", action="store_true", help="stage all changes (git add -A) first")
+    p.add_argument("--model", help="force a model (implies regenerating the message)")
+    p.add_argument("--regenerate", action="store_true", help="ignore the slot message and generate fresh")
+    p.set_defaults(func=cmd_commit)
 
     p = sub.add_parser("status", help="show plan / slot / queue / staged files")
     p.set_defaults(func=cmd_status)

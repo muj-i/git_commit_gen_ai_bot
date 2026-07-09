@@ -100,6 +100,13 @@ git commit                    # editor opens pre-filled — review, tweak, save
 
 `gitbot msg --model sonnet` forces a specific model for one run.
 
+In a hurry (or you trust the message)? Skip the editor entirely:
+
+```sh
+gitbot commit -a              # git add -A + generate + commit, one shot
+gitbot commit                 # commit what's staged — uses the slot 1 message if one is ready
+```
+
 ### Pipeline mode — working with Claude Code
 
 Start your Claude session with a prompt like:
@@ -127,6 +134,7 @@ What happens next:
 | `gitbot plan clear` | Empty the plan and queue (slot untouched). |
 | `gitbot task done <id> [--files f1 f2 ...]` | Mark a task finished. Slot free → stage + generate message; slot busy → queue. Without `--files`, all dirty files are snapshotted. Unknown ids create ad-hoc tasks. |
 | `gitbot msg [--model m]` | Generate a message for whatever is currently staged (manual mode). |
+| `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). Uses the ready slot 1 message when there is one; `--regenerate` forces a fresh one; `-a` runs `git add -A` first. Queue promotion still happens. |
 | `gitbot status` | Plan, slot 1 (with full message), queue, staged files. |
 | `gitbot service install/uninstall/start/stop/status` | Manage the launchd daemon. `install` = one-time setup for start-on-boot. |
 | `gitbot daemon` | Run the watcher in the foreground (what launchd runs). |
