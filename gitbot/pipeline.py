@@ -126,13 +126,15 @@ def task_done(repo: Path, cfg: dict, task_id: int, files: list[str] | None = Non
         return outcome
 
 
-def advance(repo: Path, cfg: dict) -> str | None:
+def advance(repo: Path, cfg: dict, group: bool = False) -> str | None:
     """Task-scoped stepping for `gitbot commit`: when the index is free, stage
     ONLY the next task's files and prepare its message.
 
     Candidates are taken queue-first, then plan order. Tasks without recorded
-    files, or whose files have no dirty changes, are skipped — this never
-    stages unrelated work. Returns an outcome string, or None if nothing to do.
+    files, or whose files have no dirty changes, are skipped. With group=True,
+    when no task matches, the model splits the dirty files into logical commit
+    groups: the first group is staged, the rest join the queue as ad-hoc tasks.
+    Returns an outcome string, or None if nothing to do.
     """
     with _lock(repo):
         st = state_mod.load(repo)
@@ -163,6 +165,34 @@ def advance(repo: Path, cfg: dict) -> str | None:
                     st["queue"].remove(task["id"])
                 state_mod.save(repo, st)
                 return f"task {task['id']} ({task['title']}) — only its files staged, message ready"
+
+        if not group:
+            return None
+        groups = message.group_changes(repo, cfg)
+        if not groups:
+            return None
+        next_id = max((t.get("id", 0) for t in st["plan"]), default=0) + 1
+        new_tasks: list[dict] = []
+        for entry in groups:
+            new_tasks.append(
+                {
+                    "id": next_id,
+                    "title": entry["title"],
+                    "description": "",
+                    "files": entry["files"],
+                    "status": "done",
+                }
+            )
+            next_id += 1
+        st["plan"].extend(new_tasks)
+        st["queue"].extend(t["id"] for t in new_tasks[1:])
+
+        first = new_tasks[0]
+        if _stage_and_fill(repo, cfg, st, first, announce=False):
+            state_mod.save(repo, st)
+            rest = f", {len(new_tasks) - 1} more group(s) queued" if len(new_tasks) > 1 else ""
+            return f"grouped changes → staged '{first['title']}' ({len(first['files'])} file(s)){rest}"
+        state_mod.save(repo, st)
         return None
 
 

@@ -166,15 +166,14 @@ def cmd_commit(args) -> int:
     cfg = config.load()
 
     if not git_ops.has_staged(repo):
-        # Task-scoped stepping: stage only the next task's files, never everything.
-        advanced = pipeline.advance(repo, cfg)
+        # Task-scoped stepping: stage only the next task's files (or, with -a,
+        # let the model group the dirty files into logical commits) — never everything.
+        advanced = pipeline.advance(repo, cfg, group=args.all)
         if advanced:
             print(f"auto-staged: {advanced}")
-        elif args.all:
-            git_ops.stage(repo, None)  # -a falls back to add-all only without task info
     if not git_ops.has_staged(repo):
         print(
-            "error: nothing staged and no task files to step through — `git add` first or use -a",
+            "error: nothing staged and no task/group to step through — `git add` first or use -a",
             file=sys.stderr,
         )
         return 1
@@ -200,9 +199,10 @@ def cmd_commit(args) -> int:
     outcome = pipeline.on_commit(repo, cfg)
     print(f"pipeline: {outcome}")
 
-    # Step forward: stage only the NEXT task's files so the next `gitbot commit`
-    # (or plain `git commit`) continues task by task.
-    advanced = pipeline.advance(repo, cfg)
+    # Step forward: stage only the NEXT task's files (grouping the leftovers
+    # into logical commits when no plan exists) so the next `gitbot commit`
+    # or plain `git commit` continues task by task.
+    advanced = pipeline.advance(repo, cfg, group=True)
     if advanced:
         print(f"next: {advanced}")
     return 0

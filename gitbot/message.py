@@ -1,3 +1,4 @@
+import json
 import re
 
 from . import git_ops
@@ -106,6 +107,64 @@ def generate(repo, cfg: dict, task: dict | None = None) -> tuple[str, str]:
         lines[0] = f"chore: {lines[0]}"[:72]
         return "\n".join(lines), model
     return fallback_message(repo, task), model
+
+
+def group_changes(repo, cfg: dict) -> list[dict] | None:
+    """Ask the model to split the dirty working tree into logical commit groups.
+
+    Returns [{"title": ..., "files": [...]}, ...] in commit order, or None when
+    there is nothing to group or the model output is unusable.
+    """
+    dirty = git_ops.dirty_files(repo)
+    if not dirty:
+        return None
+
+    diff_excerpt = git_ops.run(repo, "diff")[:8000]
+    prompt = (
+        "Group the following uncommitted changes into logical, self-contained commits.\n\n"
+        "Changed files:\n"
+        + "\n".join(f"- {f}" for f in dirty)
+        + "\n\nUnstaged diff (tracked files only; untracked files are new):\n```diff\n"
+        + diff_excerpt
+        + "\n```\n\n"
+        "Rules:\n"
+        "- Every file appears in exactly ONE group.\n"
+        "- Group files that belong to the same change/topic; separate unrelated work.\n"
+        "- Order groups so foundational changes come first.\n"
+        '- Output ONLY a JSON array: [{"title": "imperative summary", "files": ["path", ...]}]\n'
+        "- No prose, no code fences, no explanation."
+    )
+    model = cfg["model_small"]
+    provider = get_provider(cfg["provider"])
+    try:
+        with spin(f"grouping {len(dirty)} changed file(s) into commits · {model}"):
+            raw = provider.generate_commit_message(prompt, model)
+    except ProviderError:
+        return None
+
+    match = re.search(r"\[.*\]", clean(raw), re.DOTALL)
+    if not match:
+        return None
+    try:
+        groups = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+    dirty_set = set(dirty)
+    seen: set[str] = set()
+    valid: list[dict] = []
+    for group in groups if isinstance(groups, list) else []:
+        if not isinstance(group, dict):
+            continue
+        files = [f for f in group.get("files", []) if f in dirty_set and f not in seen]
+        if not files:
+            continue
+        seen.update(files)
+        valid.append({"title": str(group.get("title") or "update files"), "files": files})
+    leftovers = [f for f in dirty if f not in seen]
+    if leftovers and valid:
+        valid.append({"title": "update remaining files", "files": leftovers})
+    return valid or None
 
 
 def generate_or_fallback(repo, cfg: dict, task: dict | None = None) -> tuple[str, str, str | None]:
