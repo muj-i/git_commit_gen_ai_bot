@@ -2,6 +2,7 @@ import re
 
 from . import git_ops
 from .providers import ProviderError, get_provider
+from .spinner import spin
 
 CONVENTIONAL_RE = re.compile(
     r"^(feat|fix|refactor|perf|docs|test|chore|style|build|ci|revert)"
@@ -82,7 +83,8 @@ def generate(repo, cfg: dict, task: dict | None = None) -> tuple[str, str]:
     )
     provider = get_provider(cfg["provider"])
 
-    message = clean(provider.generate_commit_message(prompt, model))
+    with spin(f"generating commit message · {model} · {n_files} file(s), {n_lines} line(s)"):
+        message = clean(provider.generate_commit_message(prompt, model))
     if is_conventional(message):
         return message, model
 
@@ -92,7 +94,8 @@ def generate(repo, cfg: dict, task: dict | None = None) -> tuple[str, str]:
         + "The first line MUST match `type(scope): subject`. Try again."
     )
     try:
-        message = clean(provider.generate_commit_message(retry_prompt, model))
+        with spin(f"retrying · {model} · first attempt wasn't Conventional Commits"):
+            message = clean(provider.generate_commit_message(retry_prompt, model))
     except ProviderError:
         message = ""
     if is_conventional(message):
