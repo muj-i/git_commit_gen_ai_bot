@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# gitbot runtime state (per-repo)
+.gitbot/
+
+# OS
+.DS_Store

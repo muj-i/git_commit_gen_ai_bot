@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitbot"
+version = "0.1.0"
+description = "AI commit-message bot: stages task work and generates Conventional Commits messages using your Claude subscription"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+gitbot = "gitbot.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gitbot*"]
