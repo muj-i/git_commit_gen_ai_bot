@@ -117,7 +117,7 @@ gitbot commit      # commits task 2 → pre-stages task 3
 gitbot commit      # ...and so on, one task-scoped commit per trigger
 ```
 
-`-a` falls back to plain `git add -A` only when no plan task's files match the dirty changes.
+**No plan? gitbot groups for you.** When no task info matches the dirty files, gitbot asks the model to split them into logical commit groups (related files together, unrelated work separated). The first group is staged with its message ready; the remaining groups join the queue as ad-hoc tasks — so repeated `gitbot commit` still walks your changes one clean commit at a time, never `git add -A` blobs. Grouping runs at the start of `gitbot commit -a`, and after **every** `gitbot commit` for whatever is left.
 
 ### Pipeline mode — working with Claude Code
 
@@ -148,7 +148,7 @@ What happens next:
 | `gitbot plan clear` | Empty the plan and queue (slot untouched). |
 | `gitbot task done <id> [--files f1 f2 ...]` | Mark a task finished. Slot free → stage + generate message; slot busy → queue. Without `--files`, all dirty files are snapshotted. Unknown ids create ad-hoc tasks. |
 | `gitbot msg [--model m]` | Generate a message for whatever is currently staged (manual mode). |
-| `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). Commits what's staged; with nothing staged it steps to the next task and stages **only that task's files**. After each commit it pre-stages the following task, so repeated triggers walk the plan commit by commit. `-a` = plain `git add -A`, used only when no task files match. |
+| `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). Commits what's staged; with nothing staged (`-a`) it stages **only the next task's files** — or, without a plan, AI-groups the dirty files into logical commits. After each commit the next task/group is pre-staged automatically, so repeated triggers walk all changes one clean commit at a time. |
 | `gitbot auto [on\|off\|status]` | Per-repo auto-commit toggle: with `on`, every finished task is committed by gitbot immediately — no review stop. |
 | `gitbot status` | Auto-commit setting, plan, slot 1 (with full message), queue, staged files. |
 | `gitbot service install/uninstall/start/stop/status` | Manage the launchd daemon. `install` = one-time setup for start-on-boot. |
