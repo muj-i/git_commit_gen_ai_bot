@@ -193,11 +193,29 @@ def cmd_commit(args) -> int:
     return 0
 
 
+def cmd_auto(args) -> int:
+    repo = _repo(args)
+    st = state_mod.load(repo)
+    if args.mode == "status":
+        current = st.get("auto_commit", config.load().get("auto_commit", False))
+        print(f"auto-commit: {'on' if current else 'off'}")
+        return 0
+    st["auto_commit"] = args.mode == "on"
+    state_mod.save(repo, st)
+    if st["auto_commit"]:
+        print("auto-commit ON — gitbot commits each finished task itself (no review stop)")
+    else:
+        print("auto-commit OFF — you review slot 1 and commit yourself")
+    return 0
+
+
 def cmd_status(args) -> int:
     repo = _repo(args)
     st = state_mod.load(repo)
 
+    auto = st.get("auto_commit", config.load().get("auto_commit", False))
     print(f"repo: {repo}")
+    print(f"auto-commit: {'on' if auto else 'off'}")
     if st["plan"]:
         print("plan:")
         for task in st["plan"]:
@@ -293,6 +311,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="force a model (implies regenerating the message)")
     p.add_argument("--regenerate", action="store_true", help="ignore the slot message and generate fresh")
     p.set_defaults(func=cmd_commit)
+
+    p = sub.add_parser("auto", help="toggle auto-commit for this repo (gitbot commits finished tasks itself)")
+    p.add_argument("mode", choices=["on", "off", "status"], nargs="?", default="status")
+    p.set_defaults(func=cmd_auto)
 
     p = sub.add_parser("status", help="show plan / slot / queue / staged files")
     p.set_defaults(func=cmd_status)

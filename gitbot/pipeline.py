@@ -23,7 +23,13 @@ def _first_line(text: str) -> str:
     return text.splitlines()[0] if text else ""
 
 
-def _stage_and_fill(repo: Path, cfg: dict, st: dict, task: dict) -> bool:
+def _auto_enabled(cfg: dict, st: dict) -> bool:
+    if "auto_commit" in st:
+        return bool(st["auto_commit"])
+    return bool(cfg.get("auto_commit", False))
+
+
+def _stage_and_fill(repo: Path, cfg: dict, st: dict, task: dict, announce: bool = True) -> bool:
     """Stage a done task's files and fill slot 1 with a generated message.
 
     Returns False when the task produced no staged changes (nothing to commit).
@@ -43,13 +49,40 @@ def _stage_and_fill(repo: Path, cfg: dict, st: dict, task: dict) -> bool:
     task["status"] = "staged"
     state_mod.write_commit_msg(repo, msg)
 
-    note = f"Task {task['id']} staged — review & commit: {_first_line(msg)}"
-    if error:
-        note = f"Task {task['id']} staged with FALLBACK message (generation failed)"
-    notify("gitbot", note, cfg.get("notifications", True))
+    if announce:
+        note = f"Task {task['id']} staged — review & commit: {_first_line(msg)}"
+        if error:
+            note = f"Task {task['id']} staged with FALLBACK message (generation failed)"
+        notify("gitbot", note, cfg.get("notifications", True))
     if error:
         print(f"warning: message generation failed, used fallback: {error}")
     return True
+
+
+def _auto_commit_all(repo: Path, cfg: dict, st: dict) -> list[str]:
+    """Auto mode: commit slot 1 and keep draining the queue. Returns subjects."""
+    subjects: list[str] = []
+    while st.get("slot"):
+        slot = st["slot"]
+        git_ops.run(repo, "commit", "-m", slot["message"])
+        subject = _first_line(slot["message"])
+        subjects.append(subject)
+        task = state_mod.get_task(st, slot["task_id"])
+        if task:
+            task["status"] = "committed"
+        st["slot"] = None
+        state_mod.clear_commit_msg(repo)
+        notify("gitbot", f"auto-committed: {subject}", cfg.get("notifications", True))
+
+        while st["queue"]:
+            next_id = st["queue"].pop(0)
+            queued = state_mod.get_task(st, next_id)
+            if queued is None:
+                continue
+            if _stage_and_fill(repo, cfg, st, queued, announce=False):
+                break
+            queued["status"] = "committed"
+    return subjects
 
 
 def task_done(repo: Path, cfg: dict, task_id: int, files: list[str] | None = None) -> str:
@@ -72,8 +105,9 @@ def task_done(repo: Path, cfg: dict, task_id: int, files: list[str] | None = Non
             task["files"] = git_ops.dirty_files(repo)
         task["status"] = "done"
 
+        auto = _auto_enabled(cfg, st)
         if st.get("slot") is None:
-            if _stage_and_fill(repo, cfg, st, task):
+            if _stage_and_fill(repo, cfg, st, task, announce=not auto):
                 outcome = f"staged in slot 1 (message ready, model={st['slot']['model']})"
             else:
                 task["status"] = "committed"
@@ -82,6 +116,11 @@ def task_done(repo: Path, cfg: dict, task_id: int, files: list[str] | None = Non
             if task_id not in st["queue"]:
                 st["queue"].append(task_id)
             outcome = f"queued behind slot 1 (queue position {st['queue'].index(task_id) + 1})"
+
+        if auto and st.get("slot"):
+            subjects = _auto_commit_all(repo, cfg, st)
+            if subjects:
+                outcome = f"auto-committed {len(subjects)} commit(s): " + "; ".join(subjects)
 
         state_mod.save(repo, st)
         return outcome
@@ -115,6 +154,11 @@ def on_commit(repo: Path, cfg: dict) -> str:
                 promoted = next_id
                 break
             task["status"] = "committed"  # absorbed by an earlier commit
+
+        if promoted is not None and _auto_enabled(cfg, st):
+            subjects = _auto_commit_all(repo, cfg, st)
+            state_mod.save(repo, st)
+            return f"auto-committed {len(subjects)} commit(s): " + "; ".join(subjects)
 
         state_mod.save(repo, st)
         if promoted is not None:

@@ -12,6 +12,7 @@ DEFAULTS = {
     "small_max_files": 5,
     "diff_max_chars": 15000,
     "notifications": True,
+    "auto_commit": False,
     "daemon_poll_seconds": 15,
     "repos": [],
 }
