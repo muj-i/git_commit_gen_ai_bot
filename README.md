@@ -8,7 +8,7 @@ gitbot turns your **Claude subscription** into a commit-message engine. It watch
 - **2-slot pipeline** — the bot holds one review-ready changeset in the git index (slot 1) while queued done-tasks wait (slot 2+); committing one automatically stages and describes the next.
 - **Sonnet by default, switchable per size** — `sonnet` generates every message out of the box; set `model_small: "haiku"` to burn less quota on small diffs (thresholds configurable).
 - **You always review** — generated messages land in your `git commit` editor via a hook; nothing is ever committed for you.
-- **…unless you want hands-off** — `gitbot auto on` makes gitbot commit each finished task itself, straight through, per repo.
+- **…unless you want hands-off (the default)** — auto-commit mode is on out of the box: Claude reports a finished task, gitbot stages it, writes the message, and commits it. `gitbot auto off` switches a repo back to review mode.
 - **Manual mode too** — stage anything yourself and run `gitbot msg`.
 - **Provider-pluggable** — one small Python class per AI backend; Codex/OpenAI can be added without touching the pipeline.
 - **Survives restarts** — a launchd daemon (auto-started at login) recovers state even when commits happen from GUI clients that skip hooks.
@@ -135,7 +135,7 @@ What happens next:
 4. The moment you commit, gitbot promotes task 2 from the queue: stages it, generates its message, notifies you again. Claude is meanwhile on task 3.
 5. Repeat until the plan is done — every commit reviewed by you, every message written for you.
 
-**Hands-off variant:** run `gitbot auto on` in the repo and skip the review loop entirely — every `gitbot task done` immediately becomes its own commit (message generated, committed, 🔔 notified). The queue drains itself. `gitbot auto off` restores review mode; `gitbot auto` shows the current setting. Set `"auto_commit": true` in `~/.gitbot/config.json` to make it the default for all repos.
+**Auto mode (the default):** every `gitbot task done` immediately becomes its own commit — staged, message generated, committed, 🔔 notified — and the queue drains itself. The review loop above (steps 3–4) only applies when you switch a repo to review mode with `gitbot auto off` (`gitbot auto` shows the current setting; the global default lives in `~/.gitbot/config.json` as `"auto_commit"`).
 
 ### CLI reference
 
@@ -149,7 +149,7 @@ What happens next:
 | `gitbot task done <id> [--files f1 f2 ...]` | Mark a task finished. Slot free → stage + generate message; slot busy → queue. Without `--files`, all dirty files are snapshotted. Unknown ids create ad-hoc tasks. |
 | `gitbot msg [--model m]` | Generate a message for whatever is currently staged (manual mode). |
 | `gitbot commit [-a] [--model m] [--regenerate]` | Generate the message **and commit** in one step (no editor). Commits what's staged; with nothing staged (`-a`) it stages **only the next task's files** — or, without a plan, AI-groups the dirty files into logical commits. After each commit the next task/group is pre-staged automatically, so repeated triggers walk all changes one clean commit at a time. |
-| `gitbot auto [on\|off\|status]` | Per-repo auto-commit toggle: with `on`, every finished task is committed by gitbot immediately — no review stop. |
+| `gitbot auto [on\|off\|status]` | Per-repo auto-commit toggle (default **on**): finished tasks are committed by gitbot immediately; `off` holds them staged for your review instead. |
 | `gitbot status` | Auto-commit setting, plan, slot 1 (with full message), queue, staged files. |
 | `gitbot service install/uninstall/start/stop/status` | Manage the launchd daemon. `install` = one-time setup for start-on-boot. |
 | `gitbot daemon` | Run the watcher in the foreground (what launchd runs). |
@@ -170,7 +170,7 @@ Global config: `~/.gitbot/config.json` (created on first use; edit freely).
 | `small_max_files` | `5` | …or more files than this. |
 | `diff_max_chars` | `15000` | Diffs longer than this are truncated (a `--stat` summary is appended) before prompting. |
 | `notifications` | `true` | macOS notification when a slot becomes ready. |
-| `auto_commit` | `false` | Global default for auto-commit mode (per-repo `gitbot auto on/off` overrides it). |
+| `auto_commit` | `true` | Global default for auto-commit mode (per-repo `gitbot auto on/off` overrides it). |
 | `daemon_poll_seconds` | `15` | Daemon poll interval. |
 | `repos` | `[]` | Repos registered by `gitbot init` (watched by the daemon). |
 
