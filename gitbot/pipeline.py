@@ -34,7 +34,9 @@ def _stage_and_fill(repo: Path, cfg: dict, st: dict, task: dict, announce: bool 
 
     Returns False when the task produced no staged changes (nothing to commit).
     """
-    git_ops.stage(repo, task.get("files") or None)
+    skipped = git_ops.stage(repo, task.get("files") or None)
+    if skipped:
+        print(f"note: skipped gitignored file(s): {', '.join(skipped)}")
     if not git_ops.has_staged(repo):
         return False
 

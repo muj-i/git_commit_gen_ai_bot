@@ -57,13 +57,37 @@ def is_tracked(repo: Path, path: str) -> bool:
     return result.returncode == 0
 
 
-def stage(repo: Path, files: list[str] | None = None) -> None:
+def ignored_paths(repo: Path, paths: list[str]) -> set[str]:
+    if not paths:
+        return set()
+    result = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "--stdin"],
+        input="\n".join(paths),
+        capture_output=True,
+        text=True,
+    )
+    return {line for line in result.stdout.splitlines() if line}
+
+
+def stage(repo: Path, files: list[str] | None = None) -> list[str]:
+    """Stage the given paths (or everything with -A).
+
+    Gitignored untracked paths are skipped — `git add` refuses the whole batch
+    otherwise. Returns the list of skipped paths.
+    """
     if not files:
         run(repo, "add", "-A")
-        return
-    stageable = [f for f in files if (Path(repo) / f).exists() or is_tracked(repo, f)]
+        return []
+    ignored = ignored_paths(repo, files)
+    skipped = [f for f in files if f in ignored and not is_tracked(repo, f)]
+    stageable = [
+        f
+        for f in files
+        if f not in skipped and ((Path(repo) / f).exists() or is_tracked(repo, f))
+    ]
     if stageable:
         run(repo, "add", "-A", "--", *stageable)
+    return skipped
 
 
 def staged_files(repo: Path) -> list[str]:
