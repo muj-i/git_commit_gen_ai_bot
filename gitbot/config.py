@@ -6,7 +6,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "provider": "claude-cli",
-    "model_small": "haiku",
+    "model_small": "sonnet",
     "model_large": "sonnet",
     "small_max_lines": 150,
     "small_max_files": 5,
