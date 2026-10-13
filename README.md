@@ -264,7 +264,7 @@ Gitbot tries the next provider with its own model. Check the relevant login with
 Promotion is asynchronous (a few seconds — it calls Claude). Check `.gitbot/hook.log`. If you committed from a GUI client that skips hooks, the daemon reconciles within `daemon_poll_seconds`.
 
 **No notifications appear.**
-macOS may ask you to allow notifications from "Script Editor"/"osascript" the first time — approve it in System Settings → Notifications. Or set `"notifications": false`.
+Gitbot passes notification text directly to AppleScript as arguments, preserving Unicode model labels and commit subjects. Delivery errors print a warning in the terminal (or `.gitbot/hook.log` / `~/.gitbot/daemon.log` for background calls). macOS may ask you to allow notifications from "Script Editor"/"osascript" the first time — approve it in System Settings → Notifications. A successful send request can still be hidden by notification settings or Focus. Set `"notifications": false` to disable notifications.
 
 **Claude committed by itself!**
 Make sure the protocol is in `CLAUDE.md` (`gitbot init --claude-md`) — rule 3 is *NEVER run `git add`/`git commit`*. You can also deny git-commit permissions in Claude Code's settings.
