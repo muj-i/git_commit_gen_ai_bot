@@ -1,8 +1,12 @@
 from .base import Provider, ProviderError
 from .claude_cli import ClaudeCLIProvider
+from .codex_cli import CodexCLIProvider
+from .gemini_cli import GeminiCLIProvider
 
 _REGISTRY: dict[str, type[Provider]] = {
     ClaudeCLIProvider.name: ClaudeCLIProvider,
+    CodexCLIProvider.name: CodexCLIProvider,
+    GeminiCLIProvider.name: GeminiCLIProvider,
 }
 
 

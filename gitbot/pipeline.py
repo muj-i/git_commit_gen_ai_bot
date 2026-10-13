@@ -4,6 +4,7 @@ from pathlib import Path
 
 from . import git_ops, message, state as state_mod
 from .notify import notify
+from .providers import ProviderError
 
 
 @contextmanager
@@ -41,6 +42,13 @@ def _stage_and_fill(repo: Path, cfg: dict, st: dict, task: dict, announce: bool 
         return False
 
     msg, model, error = message.generate_or_fallback(repo, cfg, task)
+    if error:
+        state_mod.clear_commit_msg(repo)
+        state_mod.save(repo, st)
+        notify("gitbot", "Commit paused: all AI providers failed; changes remain staged",
+               cfg.get("notifications", True))
+        raise ProviderError(error)
+    task["model"] = model
     st["slot"] = {
         "task_id": task["id"],
         "message": msg,
@@ -52,12 +60,8 @@ def _stage_and_fill(repo: Path, cfg: dict, st: dict, task: dict, announce: bool 
     state_mod.write_commit_msg(repo, msg)
 
     if announce:
-        note = f"Task {task['id']} staged — review & commit: {_first_line(msg)}"
-        if error:
-            note = f"Task {task['id']} staged with FALLBACK message (generation failed)"
+        note = f"Task {task['id']} staged · {model}: {_first_line(msg)}"
         notify("gitbot", note, cfg.get("notifications", True))
-    if error:
-        print(f"warning: message generation failed, used fallback: {error}")
     return True
 
 
@@ -74,7 +78,8 @@ def _auto_commit_all(repo: Path, cfg: dict, st: dict) -> list[str]:
             task["status"] = "committed"
         st["slot"] = None
         state_mod.clear_commit_msg(repo)
-        notify("gitbot", f"auto-committed: {subject}", cfg.get("notifications", True))
+        notify("gitbot", f"auto-committed · {slot.get('model', 'unknown')}: {subject}",
+               cfg.get("notifications", True))
 
         while st["queue"]:
             next_id = st["queue"].pop(0)
@@ -215,6 +220,9 @@ def on_commit(repo: Path, cfg: dict) -> str:
             if task:
                 task["status"] = "committed"
             st["slot"] = None
+            notify("gitbot", f"committed · {slot.get('model', 'unknown')}: "
+                   f"{git_ops.head_subject(repo) or _first_line(slot['message'])}",
+                   cfg.get("notifications", True))
 
         promoted = None
         while st["queue"]:

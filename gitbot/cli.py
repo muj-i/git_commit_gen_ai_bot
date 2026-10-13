@@ -14,6 +14,8 @@ from . import (
     service,
     state as state_mod,
 )
+from .notify import notify
+from .providers import ProviderError
 
 CLAUDE_MD_MARKER = "## gitbot commit protocol"
 
@@ -43,6 +45,16 @@ def _repo(args) -> Path:
 
 def _next_id(plan: list[dict]) -> int:
     return max((t.get("id", 0) for t in plan), default=0) + 1
+
+
+def _update_slot_message(repo: Path, msg: str, model: str) -> None:
+    st = state_mod.load(repo)
+    if st.get("slot"):
+        st["slot"].update(message=msg, model=model)
+        task = state_mod.get_task(st, st["slot"]["task_id"])
+        if task:
+            task["model"] = model
+        state_mod.save(repo, st)
 
 
 def cmd_init(args) -> int:
@@ -152,11 +164,13 @@ def cmd_msg(args) -> int:
         return 1
     cfg = config.load()
     if args.model:
-        cfg = {**cfg, "model_small": args.model, "model_large": args.model}
+        cfg = {**cfg, "model_override": args.model}
     msg, model, error = message.generate_or_fallback(repo, cfg)
     if error:
-        print(f"warning: generation failed, using fallback: {error}", file=sys.stderr)
+        print(f"error: generation failed; changes remain staged: {error}", file=sys.stderr)
+        return 1
     state_mod.write_commit_msg(repo, msg)
+    _update_slot_message(repo, msg, model)
     print(f"# model: {model} — message saved; plain `git commit` will pre-fill it")
     print(msg)
     return 0
@@ -186,13 +200,18 @@ def cmd_commit(args) -> int:
         source = f"slot 1, task {slot['task_id']}"
     else:
         if args.model:
-            cfg = {**cfg, "model_small": args.model, "model_large": args.model}
+            cfg = {**cfg, "model_override": args.model}
         msg, model, error = message.generate_or_fallback(repo, cfg)
         if error:
-            print(f"warning: generation failed, using fallback: {error}", file=sys.stderr)
+            print(f"error: generation failed; changes remain staged: {error}", file=sys.stderr)
+            return 1
         source = "generated now"
+        _update_slot_message(repo, msg, model)
 
     git_ops.run(repo, "commit", "-m", msg)
+    if not slot:
+        notify("gitbot", f"committed · {model}: {msg.splitlines()[0]}",
+               cfg.get("notifications", True))
     print(f"committed ({source}, model {model}):")
     for line in msg.splitlines():
         print(f"  | {line}")
@@ -235,7 +254,8 @@ def cmd_status(args) -> int:
     if st["plan"]:
         print("plan:")
         for task in st["plan"]:
-            print(f"  [{task['id']}] {task['status']:<10} {task['title']}")
+            model_note = f" · {task['model']}" if task.get("model") else ""
+            print(f"  [{task['id']}] {task['status']:<10} {task['title']}{model_note}")
     else:
         print("plan: (empty)")
 
@@ -283,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gitbot",
         description="AI commit-message bot — stages task work and generates "
-        "Conventional Commits messages with your Claude subscription.",
+        "Conventional Commits messages via Claude, Codex Sol, or Gemini Flash logins.",
     )
     parser.add_argument("--version", action="version", version=f"gitbot {__version__}")
     parser.add_argument("--repo", help="repo path (default: current directory)")
@@ -319,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_task_done)
 
     p = sub.add_parser("msg", help="generate a message for whatever is currently staged")
-    p.add_argument("--model", help="force a model (default: auto haiku/sonnet by change size)")
+    p.add_argument("--model", help="force the primary provider's model (fallbacks use their own models)")
     p.set_defaults(func=cmd_msg)
 
     p = sub.add_parser("commit", help="generate the message AND commit in one step (no editor)")
@@ -353,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except git_ops.GitError as exc:
+    except (git_ops.GitError, ProviderError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

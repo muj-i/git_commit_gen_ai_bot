@@ -23,6 +23,26 @@ def choose_model(cfg: dict, n_files: int, n_lines: int) -> str:
     return cfg["model_small"] if small else cfg["model_large"]
 
 
+def provider_candidates(cfg: dict, n_files: int, n_lines: int):
+    """Keep the configured primary, then try each fallback with its own model."""
+    primary = cfg["provider"]
+    names = [primary, *cfg.get("fallback_providers", ["codex-cli", "gemini-cli"])]
+    seen = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        if name == primary and cfg.get("model_override"):
+            model = cfg["model_override"]
+        elif name == "codex-cli":
+            model = cfg.get("codex_model", "gpt-6.1-sol")
+        elif name == "gemini-cli":
+            model = cfg.get("gemini_model", "gemini-3.8-flash-medium")
+        else:
+            model = choose_model(cfg, n_files, n_lines)
+        yield name, model
+
+
 def build_prompt(diff: str, task: dict | None = None, subjects: list[str] | None = None) -> str:
     parts = ["Write a git commit message for the staged changes below.", "", RULES]
     if task:
@@ -76,37 +96,33 @@ def truncated_diff(repo, cfg: dict) -> str:
 
 
 def generate(repo, cfg: dict, task: dict | None = None) -> tuple[str, str]:
-    """Generate a commit message for the staged diff. Returns (message, model)."""
+    """Return (message, provider/model) from the first usable signed-in CLI."""
     n_files, n_lines = git_ops.staged_numstat(repo)
-    model = choose_model(cfg, n_files, n_lines)
     prompt = build_prompt(
         truncated_diff(repo, cfg), task=task, subjects=git_ops.recent_subjects(repo)
     )
-    provider = get_provider(cfg["provider"])
-
-    with spin(f"generating commit message · {model} · {n_files} file(s), {n_lines} line(s)"):
-        message = clean(provider.generate_commit_message(prompt, model))
-    if is_conventional(message):
-        return message, model
-
     retry_prompt = (
         prompt
         + "\n\nYour previous attempt did not follow the Conventional Commits format. "
         + "The first line MUST match `type(scope): subject`. Try again."
     )
-    try:
-        with spin(f"retrying · {model} · first attempt wasn't Conventional Commits"):
-            message = clean(provider.generate_commit_message(retry_prompt, model))
-    except ProviderError:
-        message = ""
-    if is_conventional(message):
-        return message, model
-
-    if message:
-        lines = message.splitlines()
-        lines[0] = f"chore: {lines[0]}"[:72]
-        return "\n".join(lines), model
-    return fallback_message(repo, task), model
+    errors = []
+    for name, model in provider_candidates(cfg, n_files, n_lines):
+        label = f"{name} / {model}"
+        try:
+            provider = get_provider(name)
+            with spin(f"generating commit message · {label} · {n_files} file(s), {n_lines} line(s)"):
+                message = clean(provider.generate_commit_message(prompt, model))
+            if not is_conventional(message):
+                with spin(f"retrying · {label} · first attempt wasn't Conventional Commits"):
+                    message = clean(provider.generate_commit_message(retry_prompt, model))
+            if not is_conventional(message):
+                raise ProviderError("response did not follow Conventional Commits after retry")
+            return message, label
+        except ProviderError as exc:
+            errors.append(f"{label}: {exc}")
+            print(f"note: {label} unavailable: {exc}")
+    raise ProviderError("all commit-message providers failed — " + "; ".join(errors))
 
 
 def group_changes(repo, cfg: dict) -> list[dict] | None:
@@ -134,14 +150,20 @@ def group_changes(repo, cfg: dict) -> list[dict] | None:
         '- Output ONLY a JSON array: [{"title": "imperative summary", "files": ["path", ...]}]\n'
         "- No prose, no code fences, no explanation."
     )
-    model = cfg["model_small"]
-    provider = get_provider(cfg["provider"])
-    try:
-        with spin(f"grouping {len(dirty)} changed file(s) into commits · {model}"):
-            raw = provider.generate_commit_message(prompt, model)
-    except ProviderError:
-        return None
+    for name, model in provider_candidates(cfg, 0, 0):
+        try:
+            provider = get_provider(name)
+            with spin(f"grouping {len(dirty)} changed file(s) into commits · {name} / {model}"):
+                raw = provider.generate_commit_message(prompt, model)
+            groups = _parse_groups(raw, dirty)
+            if groups:
+                return groups
+        except ProviderError:
+            continue
+    return None
 
+
+def _parse_groups(raw: str, dirty: list[str]) -> list[dict] | None:
     match = re.search(r"\[.*\]", clean(raw), re.DOTALL)
     if not match:
         return None
@@ -156,7 +178,10 @@ def group_changes(repo, cfg: dict) -> list[dict] | None:
     for group in groups if isinstance(groups, list) else []:
         if not isinstance(group, dict):
             continue
-        files = [f for f in group.get("files", []) if f in dirty_set and f not in seen]
+        paths = group.get("files", [])
+        if not isinstance(paths, list):
+            continue
+        files = [f for f in paths if isinstance(f, str) and f in dirty_set and f not in seen]
         if not files:
             continue
         seen.update(files)
@@ -168,7 +193,7 @@ def group_changes(repo, cfg: dict) -> list[dict] | None:
 
 
 def generate_or_fallback(repo, cfg: dict, task: dict | None = None) -> tuple[str, str, str | None]:
-    """Like generate(), but never raises. Returns (message, model, error)."""
+    """Return (message, provider/model, error); callers must stop on error."""
     try:
         message, model = generate(repo, cfg, task)
         return message, model, None

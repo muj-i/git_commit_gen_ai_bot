@@ -6,6 +6,9 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "provider": "claude-cli",
+    "fallback_providers": ["codex-cli", "gemini-cli"],
+    "codex_model": "gpt-6.1-sol",
+    "gemini_model": "gemini-3.8-flash-medium",
     "model_small": "sonnet",
     "model_large": "sonnet",
     "small_max_lines": 150,
